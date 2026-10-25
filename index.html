@@ -311,5 +311,35 @@ document.getElementById('load').style.display='none';
 // VR: oturum başlarken sahneyi izleyicinin tam önüne, gerçek ölçekte yerleştir; bitince geri al.
 renderer.xr.addEventListener('sessionstart',()=>{const d=Math.max(700,size*.9);scene.position.set(-ctr.x,-ctr.y,-d-ctr.z)});
 renderer.xr.addEventListener('sessionend',()=>{scene.position.set(0,0,0)});
-renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+// VR hareket: sol stick yürme, sağ stick dönüş (sabit sınır / stationary için)
+function xrGamepad(hand){
+  const s=renderer.xr.getSession(); if(!s) return null;
+  for(const src of s.inputSources) if(src.handedness===hand&&src.gamepad) return src.gamepad;
+  return null;
+}
+function rotateWorld(pivot,ang){
+  const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),ang);
+  scene.position.sub(pivot).applyQuaternion(q).add(pivot);
+  scene.quaternion.premultiply(q);
+}
+function vrUpdate(dt){
+  if(!renderer.xr.isPresenting) return;
+  const cam=renderer.xr.getCamera();
+  const fwd=new THREE.Vector3(); cam.getWorldDirection(fwd); fwd.y=0; fwd.normalize();
+  const right=new THREE.Vector3().crossVectors(fwd,new THREE.Vector3(0,1,0)).normalize();
+  const gp=xrGamepad('left');
+  if(gp){
+    const ax=gp.axes.length>2?(gp.axes[2]||0):(gp.axes[0]||0);
+    const ay=gp.axes.length>3?(gp.axes[3]||0):(gp.axes[1]||0);
+    scene.position.addScaledVector(fwd,ay*1600*dt);
+    scene.position.addScaledVector(right,-ax*1600*dt);
+  }
+  const tr=xrGamepad('right');
+  if(tr){
+    const tx=tr.axes.length>2?(tr.axes[2]||0):(tr.axes[0]||0);
+    if(Math.abs(tx)>.15) rotateWorld(cam.getWorldPosition(new THREE.Vector3()),tx*1.8*dt);
+  }
+}
+let lastT=0;
+renderer.setAnimationLoop(t=>{const dt=Math.min(.05,((t-lastT)||0)/1000);lastT=t;vrUpdate(dt);controls.update();renderer.render(scene,camera)});
 </script>
