@@ -1,4 +1,4 @@
-<title>Arkus–Kafa Tabanı Damarları</title>
+<meta name="ai-disclosure" content="ai-autonomous" ai-model="GLM-5.3-Flash" ai-provider="Thaura"><meta name="generator" content="Thaura (GLM-5.3-Flash)"><title>Arkus–Kafa Tabanı Damarları</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
@@ -125,6 +125,7 @@ li input{margin:0}
 <script type="module">
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {VRButton} from 'three/addons/webxr/VRButton.js';
 
 const META={
  115:['Arcus aortae','art','#b5121b'],116:['Truncus brachiocephalicus','art','#d62a2a'],
@@ -170,6 +171,9 @@ const PATHS=[
 const canvas=document.getElementById('c'), stage=document.getElementById('stage');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.xr.enabled=true;
+renderer.xr.setReferenceSpaceType('local');
+if(navigator.xr){navigator.xr.isSessionSupported('immersive-vr').then(ok=>{if(ok)document.body.appendChild(VRButton.createButton(renderer))}).catch(()=>{})}
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(32,1,1,4000);
 const controls=new OrbitControls(camera,canvas);
@@ -304,5 +308,8 @@ function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSiz
 new ResizeObserver(resize).observe(stage); resize();
 setView('Oblik');
 document.getElementById('load').style.display='none';
+// VR: oturum başlarken sahneyi izleyicinin tam önüne, gerçek ölçekte yerleştir; bitince geri al.
+renderer.xr.addEventListener('sessionstart',()=>{const d=Math.max(700,size*.9);scene.position.set(-ctr.x,-ctr.y,-d-ctr.z)});
+renderer.xr.addEventListener('sessionend',()=>{scene.position.set(0,0,0)});
 renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
 </script>
