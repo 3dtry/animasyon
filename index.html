@@ -175,6 +175,7 @@ renderer.xr.enabled=true;
 renderer.xr.setReferenceSpaceType('local');
 if(navigator.xr){navigator.xr.isSessionSupported('immersive-vr').then(ok=>{if(ok)document.body.appendChild(VRButton.createButton(renderer))}).catch(()=>{})}
 const scene=new THREE.Scene();
+const world=new THREE.Group(); scene.add(world); // VR'da hareket ettirilen model kökü (kamera bunun dışında)
 const camera=new THREE.PerspectiveCamera(32,1,1,4000);
 const controls=new OrbitControls(camera,canvas);
 controls.enableDamping=true; controls.dampingFactor=.09;
@@ -203,7 +204,7 @@ for(const m of raw){
     transparent:!vessel,opacity:vessel?1:opa[grp],depthWrite:vessel});
   const mesh=new THREE.Mesh(g,mat); mesh.renderOrder=vessel?0:(grp==='jhu'?2:1);
   mesh.userData={id:m.id,name,grp,base:new THREE.Color(color)};
-  scene.add(mesh);
+  world.add(mesh);
   const it={id:m.id,name,grp,mesh,color,on:true,code:jm?m.name:null,src:jm?jm.src:null,vol:m.vol_ml}; items.push(it); byId[m.id]=it;
 }
 
@@ -309,11 +310,20 @@ new ResizeObserver(resize).observe(stage); resize();
 setView('Oblik');
 document.getElementById('load').style.display='none';
 // VR: oturum başlarken sahneyi izleyicinin tam önüne, gerçek ölçekte yerleştir; bitince geri al.
+// Model mm cinsinden, WebXR metre cinsinden. VR_SCALE=0.001 gerçek boyut; 0.003 = 3× büyütülmüş.
+const VR_SCALE=0.003;
 renderer.xr.addEventListener('sessionstart',()=>{
-  scene.quaternion.identity(); scene.rotation.set(0,0,0);
-  const d=Math.max(700,size*.9); scene.position.set(-ctr.x,-ctr.y,-d-ctr.z);
+  controls.enabled=false;
+  camera.near=0.01; camera.far=200; camera.updateProjectionMatrix();
+  world.quaternion.identity(); world.scale.setScalar(VR_SCALE);
+  // 'local' uzayında başlangıç göz hizası y=0; modeli biraz aşağıya ve 0.8 m öne koy
+  world.position.set(-ctr.x*VR_SCALE, -0.15-ctr.y*VR_SCALE, -0.8-ctr.z*VR_SCALE);
 });
-renderer.xr.addEventListener('sessionend',()=>{scene.position.set(0,0,0);scene.quaternion.identity()});
+renderer.xr.addEventListener('sessionend',()=>{
+  world.position.set(0,0,0); world.quaternion.identity(); world.scale.setScalar(1);
+  camera.near=1; camera.far=4000; camera.updateProjectionMatrix();
+  controls.enabled=true; setView('Oblik');
+});
 // VR hareket: sol stick yürme, sağ stick dönüş (sabit sınır / stationary için)
 function xrGamepad(hand){
   const s=renderer.xr.getSession(); if(!s) return null;
@@ -322,8 +332,8 @@ function xrGamepad(hand){
 }
 function rotateWorld(pivot,ang){
   const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),ang);
-  scene.position.sub(pivot).applyQuaternion(q).add(pivot);
-  scene.quaternion.premultiply(q);
+  world.position.sub(pivot).applyQuaternion(q).add(pivot);
+  world.quaternion.premultiply(q);
 }
 function vrUpdate(dt){
   try{
@@ -335,16 +345,25 @@ function vrUpdate(dt){
   if(gp){
     const ax=gp.axes.length>2?(gp.axes[2]||0):(gp.axes[0]||0);
     const ay=gp.axes.length>3?(gp.axes[3]||0):(gp.axes[1]||0);
-    scene.position.addScaledVector(fwd,ay*1600*dt);
-    scene.position.addScaledVector(right,-ax*1600*dt);
+    const sp=0.6; // m/s
+    if(Math.abs(ax)>.1||Math.abs(ay)>.1){
+      world.position.addScaledVector(fwd,ay*sp*dt);
+      world.position.addScaledVector(right,-ax*sp*dt);
+    }
   }
   const tr=xrGamepad('right');
   if(tr){
     const tx=tr.axes.length>2?(tr.axes[2]||0):(tr.axes[0]||0);
-    if(Math.abs(tx)>.15) rotateWorld(cam.getWorldPosition(new THREE.Vector3()),tx*1.8*dt);
+    const head=cam.getWorldPosition(new THREE.Vector3());
+    if(Math.abs(tx)>.15) rotateWorld(head,tx*1.8*dt);
+    const ty=tr.axes.length>3?(tr.axes[3]||0):(tr.axes[1]||0);
+    if(Math.abs(ty)>.3){ // sağ stick yukarı: büyüt (içine gir), aşağı: küçült — baş noktası etrafında
+      const k=Math.exp(-ty*1.2*dt), ns=world.scale.x*k;
+      if(ns>0.0003&&ns<0.2){world.scale.setScalar(ns); world.position.sub(head).multiplyScalar(k).add(head);}
+    }
   }
   }catch(e){/* kumanda okuması başarısız olsa bile sahne çizilmeye devam etsin */}
 }
 let lastT=0;
-renderer.setAnimationLoop(t=>{const dt=Math.min(.05,((t-lastT)||0)/1000);lastT=t;vrUpdate(dt);controls.update();renderer.render(scene,camera)});
+renderer.setAnimationLoop(t=>{const dt=Math.min(.05,((t-lastT)||0)/1000);lastT=t;vrUpdate(dt);if(!renderer.xr.isPresenting)controls.update();renderer.render(scene,camera)});
 </script>
