@@ -364,6 +364,47 @@ function vrUpdate(dt){
   }
   }catch(e){/* kumanda okuması başarısız olsa bile sahne çizilmeye devam etsin */}
 }
+// VR kavrama: yan tuş (grip) veya tetik ile tut; el izlemede pinch (başparmak+işaret) aynı işi görür.
+// Tek el: model eli takip eder — taşı, kaldır, bileği çevirerek döndür. İki el: arayı aç/kapa = ölçek, iki eli çevir = döndür.
+const grabCtrls=[0,1].map(i=>{
+  const c=renderer.xr.getController(i); scene.add(c); c.userData.n=0;
+  const on=()=>{c.userData.n++;beginGrab()}, off=()=>{c.userData.n=Math.max(0,c.userData.n-1);beginGrab()};
+  c.addEventListener('squeezestart',on); c.addEventListener('squeezeend',off);
+  c.addEventListener('selectstart',on); c.addEventListener('selectend',off);
+  c.addEventListener('disconnected',()=>{c.userData.n=0;beginGrab()});
+  return c;
+});
+let grab=null;
+const _m=new THREE.Matrix4(), _a=new THREE.Vector3(), _b=new THREE.Vector3();
+function heldCtrls(){return grabCtrls.filter(c=>c.userData.n>0)}
+function beginGrab(){
+  const h=heldCtrls(); h.forEach(c=>c.updateMatrixWorld(true)); world.updateMatrix();
+  if(h.length===1){
+    grab={one:h[0], off:h[0].matrixWorld.clone().invert().multiply(world.matrix)};
+  }else if(h.length>=2){
+    const a=h[0].getWorldPosition(new THREE.Vector3()), b=h[1].getWorldPosition(new THREE.Vector3());
+    grab={two:[h[0],h[1]], d0:Math.max(a.distanceTo(b),1e-3), dir0:b.clone().sub(a).normalize(),
+      mid0:a.clone().add(b).multiplyScalar(.5), pos0:world.position.clone(), q0:world.quaternion.clone(), s0:world.scale.x};
+  }else grab=null;
+}
+function updateGrab(){
+  if(!grab) return;
+  if(grab.one){
+    const c=grab.one; c.updateMatrixWorld(true);
+    _m.multiplyMatrices(c.matrixWorld,grab.off).decompose(world.position,world.quaternion,_a);
+    world.scale.setScalar(_a.x);
+  }else{
+    const [c1,c2]=grab.two; c1.updateMatrixWorld(true); c2.updateMatrixWorld(true);
+    c1.getWorldPosition(_a); c2.getWorldPosition(_b);
+    const s=THREE.MathUtils.clamp(grab.s0*_a.distanceTo(_b)/grab.d0,0.0003,0.2)/grab.s0;
+    const q=new THREE.Quaternion().setFromUnitVectors(grab.dir0,_b.clone().sub(_a).normalize());
+    const mid=_a.clone().add(_b).multiplyScalar(.5);
+    world.scale.setScalar(grab.s0*s);
+    world.quaternion.copy(q).multiply(grab.q0);
+    world.position.copy(grab.pos0).sub(grab.mid0).multiplyScalar(s).applyQuaternion(q).add(mid);
+  }
+}
+renderer.xr.addEventListener('sessionend',()=>{grabCtrls.forEach(c=>c.userData.n=0);grab=null});
 let lastT=0;
-renderer.setAnimationLoop(t=>{const dt=Math.min(.05,((t-lastT)||0)/1000);lastT=t;vrUpdate(dt);if(!renderer.xr.isPresenting)controls.update();renderer.render(scene,camera)});
+renderer.setAnimationLoop(t=>{const dt=Math.min(.05,((t-lastT)||0)/1000);lastT=t;if(grab)updateGrab();else vrUpdate(dt);if(!renderer.xr.isPresenting)controls.update();renderer.render(scene,camera)});
 </script>
